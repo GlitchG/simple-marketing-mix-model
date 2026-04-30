@@ -1,10 +1,8 @@
-# Marketing Mix Modeling in BigQuery
+# Marketing Mix Model — Lightweight
 
-I built this because I got tired of explaining the difference between attribution and incrementality to clients.
+A **lightweight Marketing Mix Model** using adstock transformation, Hill saturation, and ordinary least squares regression. No Meridian, no PyMC — just numpy, scipy, and scikit-learn.
 
-Attribution tells you which ad someone clicked last. That's fine for reporting. But if you want to know whether Made Ads actually made you money — or if those customers would have bought anyway — you need a different approach. That approach is Marketing Mix Modeling.
-
-Google has an open-source library for this called Meridian. It uses Bayesian inference and gives you full probability distributions for every channel's ROI. It's great. But it requires PyMC and can be heavy to set up. So I wrote a lighter version that keeps the core ideas — adstock and saturation — and fits them with plain regression. You can run it on a CSV export from BigQuery in seconds.
+I built this because I got tired of explaining the difference between attribution and incrementality to clients. This is the *simpler* version — if you want the full Bayesian approach with Google's Meridian library, see [bigquery-meridian-mmm](https://github.com/GlitchG/bigquery-meridian-mmm).
 
 ## The basic idea
 
