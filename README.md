@@ -2,7 +2,7 @@
 
 I built this because I got tired of explaining the difference between attribution and incrementality to clients.
 
-Attribution tells you which ad someone clicked last. That's fine for reporting. But if you want to know whether Facebook Ads actually made you money — or if those customers would have bought anyway — you need a different approach. That approach is Marketing Mix Modeling.
+Attribution tells you which ad someone clicked last. That's fine for reporting. But if you want to know whether Made Ads actually made you money — or if those customers would have bought anyway — you need a different approach. That approach is Marketing Mix Modeling.
 
 Google has an open-source library for this called Meridian. It uses Bayesian inference and gives you full probability distributions for every channel's ROI. It's great. But it requires PyMC and can be heavy to set up. So I wrote a lighter version that keeps the core ideas — adstock and saturation — and fits them with plain regression. You can run it on a CSV export from BigQuery in seconds.
 
