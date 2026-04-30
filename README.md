@@ -1,27 +1,24 @@
 # Marketing Mix Modeling in BigQuery
 
-A modest attempt at answering a question every marketer asks: which channels actually drive revenue, and by how much?
+I built this because I got tired of explaining the difference between attribution and incrementality to clients.
 
-## Why this exists
+Attribution tells you which ad someone clicked last. That's fine for reporting. But if you want to know whether Facebook Ads actually made you money — or if those customers would have bought anyway — you need a different approach. That approach is Marketing Mix Modeling.
 
-I kept running into the same problem with clients: everyone has Google Ads, Facebook Ads, maybe some TV or radio — but nobody knows which channel is pulling its weight. Attribution tools (last-click, data-driven) answer a different question. What you really want is: "if I move €1,000 from Facebook to Google, what happens to revenue?"
+Google has an open-source library for this called Meridian. It uses Bayesian inference and gives you full probability distributions for every channel's ROI. It's great. But it requires PyMC and can be heavy to set up. So I wrote a lighter version that keeps the core ideas — adstock and saturation — and fits them with plain regression. You can run it on a CSV export from BigQuery in seconds.
 
-That's what Marketing Mix Modeling does. Google released an open-source library called Meridian for this. This project walks through the thinking — but using simple regression instead of Bayesian PyMC models so anyone can run it.
+## The basic idea
 
-## How it works
+Three things happen when you run an ad:
 
-The model has three ideas:
+1. It works for a while. A TV spot doesn't just affect the day it airs — people remember it, talk about it, search for your brand later. This is called **adstock** or carryover. I model it as geometric decay: the impact of week N fades by a fixed percentage each subsequent week.
 
-**1. Adstock (carryover)**
-A TV ad doesn't stop working the moment it airs. People remember it. So spend in week N contributes to revenue in weeks N, N+1, N+2, etc — decaying over time. A geometric decay does the job.
+2. It has diminishing returns. Your first 100 impressions reach new people. Your next 100 reach some of the same people. A Hill function captures this — spend goes up, response goes up, but slower and slower until it plateaus.
 
-**2. Saturation (diminishing returns)**
-Doubling your Facebook budget doesn't double revenue. The 100th impression reaches someone who has already seen 99. A Hill function models this: revenue flattens as spend increases.
+3. You can take those transformed spend columns and fit them against revenue with ordinary least squares. The coefficients tell you how much each channel contributes per euro spent.
 
-**3. Linear regression on transformed spend**
-Once you adstock-transform and saturation-transform your spend columns, you fit an ordinary regression against revenue. The coefficients are your channel effectiveness estimates.
+That's the whole model. No neural nets, no gradient boosting. Just domain knowledge encoded as math.
 
-## Try it
+## Running it
 
 ```bash
 git clone https://github.com/GlitchG/bigquery-meridian-mmm.git
@@ -30,12 +27,13 @@ pip install -r requirements.txt
 python models/simple_mmm.py
 ```
 
-The demo generates synthetic 2-year weekly data with 4 channels, fits the model, and prints ROI per channel:
+The demo generates fake 2-year data and fits the model. Output looks like:
 
 ```
 Simple MMM Results
   Adstock decay: 0.500
   R²: 0.972
+  Baseline: 1012
   Channel ROIs:
     tv           ROI=2.47x
     digital      ROI=1.82x
@@ -43,38 +41,27 @@ Simple MMM Results
     social       ROI=0.91x
 ```
 
-Search is the best performer. Social barely breaks even. That's the kind of insight this model gives — and it took seconds to compute.
+Search delivers €3.14 for every euro. Social barely breaks even. If this were real, I'd be looking at reallocating budget.
 
-## Step-by-step guide
+## How to use it with your own data
 
-### Step 1: Get your data into BigQuery
+There are three SQL files that prepare everything in BigQuery. They're written against GA4's public sample dataset, so you can test them without your own data.
 
-Three SQL views prepare everything:
+### 1. Get media spend by channel
 
-```
-sql/01_media_spend.sql   → Weekly spend per channel (Facebook, Google, TikTok, TV, Radio, OOH)
-sql/02_kpi_prep.sql      → Weekly revenue from GA4 ecommerce
-sql/03_control_vars.sql  → Holidays, seasonality, Black Friday
-```
+`sql/01_media_spend.sql` pulls weekly spend, impressions, and clicks from Facebook, Google, TikTok, TV, radio, and OOH tables. If you don't have some of these channels, just comment out that `UNION ALL` block.
 
-Run these in your BigQuery console. They're built against GA4's public sample dataset, so you can test without setting up your own data.
+### 2. Get your KPI
 
-### Step 2: Export to Python
+`sql/02_kpi_prep.sql` extracts weekly revenue from GA4 ecommerce events. Transactions, average order value, conversion rate — the basics. If your KPI is something else (subscriptions, leads, trial starts), swap out the metric.
 
-```sql
--- Export weekly data with all columns
-SELECT 
-  m.week_start, m.channel, m.spend, m.impressions,
-  k.revenue, k.sessions,
-  c.is_holiday, c.black_friday_week
-FROM `your_project.marketing_mmm.weekly_media_spend` m
-JOIN `your_project.marketing_mmm.weekly_kpi` k USING (week_start)
-JOIN `your_project.marketing_mmm.weekly_controls` c USING (week_start)
-```
+### 3. Add control variables
 
-Save as CSV, or connect directly with the BigQuery Python client.
+`sql/03_control_vars.sql` generates a table of week-level flags: Portuguese holidays, Black Friday week, summer period, month numbers for seasonality. Without these, the model might attribute December's organic spike to whatever ads happened to run in December.
 
-### Step 3: Fit the model
+### 4. Export and fit
+
+Run a JOIN query to merge all three tables, export as CSV, then:
 
 ```python
 import pandas as pd
@@ -83,47 +70,46 @@ from models.simple_mmm import SimpleMMM
 data = pd.read_csv("mmm_data.csv")
 channels = ['tv', 'digital', 'search', 'social', 'tiktok', 'ooh']
 
-# Pivot spend into wide format
 spend = data.pivot(index='week_start', columns='channel', values='spend')[channels].values
 revenue = data.groupby('week_start')['revenue'].sum().values
 
 mmm = SimpleMMM().fit(spend, revenue, channels)
 mmm.summary(spend, channels)
-mmm.plot_waterfall()
 ```
 
-### Step 4: Interpret
+### 5. Understanding the numbers
 
-- **ROI > 1.5**: Channel is profitable. Increase spend.
-- **ROI ~ 1.0**: Break-even. Keep if it has branding value.
-- **ROI < 0.8**: Losing money. Cut or redesign.
-- **R²**: How much of revenue variance the model explains. Above 0.7 is decent.
+- ROI above 1.5: the channel is probably making money. Consider spending more there.
+- ROI near 1.0: it's paying for itself but not much else. Might be worth keeping for brand awareness.
+- ROI below 0.8: losing money. Either the creative is bad, the targeting is off, or the channel doesn't work for your product.
+- R²: how much of revenue's ups and downs the model captures. 0.7+ is decent for marketing data. Below 0.5 means there's a lot going on that your channels alone don't explain — seasonality, PR, competitor moves.
 
-## Limitations (be honest about these)
+## What this model doesn't do
 
-- **Correlation ≠ causation.** If you always run TV and search ads simultaneously, the model can't fully separate them.
-- **No cross-channel effects.** A TV ad might make people Google you. This model doesn't capture that.
-- **Assumes linear response after transformations.** Real marketing is messier.
-- **Needs 1-2 years of weekly data.** Less than that, and the seasonality adjustment won't work well.
+It does not prove causation. If you always launch search ads and TV ads together, the model can't cleanly separate them. It sees correlation and splits the credit proportionally.
 
-This model is a starting point — good for directional decisions, budget discussions, and showing the CFO that you're thinking quantitatively. If you need precision at scale, use Google Meridian's full Bayesian implementation.
+It doesn't model cross-channel effects. A TV ad might make someone Google you, which shows up as a search conversion. This model assigns that to search, not TV. No easy fix for that without experiments.
+
+It needs at least a year of weekly data to capture seasonality properly. Less than that, and the control variables won't help much.
+
+For most small to mid-size businesses, this is enough to make better budget decisions than "we spent the same as last quarter." If you need more precision, use Google Meridian directly — it handles all the uncertainty properly with Bayesian methods.
 
 ## Files
 
 ```
-sql/01_media_spend.sql         — Extract weekly spend by channel
-sql/02_kpi_prep.sql            — Revenue from GA4
-sql/03_control_vars.sql        — Seasonality & holidays
-models/simple_mmm.py           — Adstock → saturation → regression
-requirements.txt               — numpy, pandas, scipy, scikit-learn, matplotlib
+sql/01_media_spend.sql       — Weekly spend: Facebook, Google, TikTok, TV, Radio, OOH
+sql/02_kpi_prep.sql          — Weekly revenue from GA4 ecommerce
+sql/03_control_vars.sql      — Holidays, seasonality, Black Friday
+models/simple_mmm.py         — Adstock + saturation + regression model
+requirements.txt             — numpy, pandas, scipy, scikit-learn, matplotlib
 ```
 
-## Related projects
+## Other projects
 
-- [Cohort Log-Predict](https://github.com/GlitchG/cohort-log-predict) — 2-point retention forecasting
-- [GA4 Attribution Models](https://github.com/GlitchG/ga4-attribution-models) — SQL-based attribution
-- [Marketing Analytics dbt](https://github.com/GlitchG/marketing_analytics_sample_reporting) — dbt pipeline
+- [GA4 Attribution Models](https://github.com/GlitchG/ga4-attribution-models) — SQL attribution models
+- [Landing Page AB Testing](https://github.com/GlitchG/landing-page-ab-testing) — statistical AB test analysis
+- [Cohort Log-Predict](https://github.com/GlitchG/cohort-log-predict) — retention forecasting from 2 points
 
 ---
 
-MIT License
+MIT
