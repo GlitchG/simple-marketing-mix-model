@@ -15,7 +15,7 @@ WITH base AS (
       (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id'))) AS sessions,
     -- Users
     COUNT(DISTINCT user_pseudo_id) AS users
-  FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
+  FROM `YOUR_PROJECT.YOUR_DATASET.events_*`
   WHERE event_name = 'purchase'
     AND _TABLE_SUFFIX BETWEEN '20210101' AND '20221231'
   GROUP BY 1
