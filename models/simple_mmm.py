@@ -3,8 +3,6 @@ Simple Marketing Mix Model — Predictive Analytics in BigQuery + Python.
 No heavy Bayesian dependencies. Uses numpy/scipy only.
 """
 import numpy as np
-import pandas as pd
-from scipy.optimize import minimize
 from sklearn.linear_model import LinearRegression
 import matplotlib.pyplot as plt
 
@@ -88,12 +86,12 @@ class SimpleMMM:
     
     def summary(self, spend, channels):
         rois = self.rois(spend, channels)
-        print(f"Simple MMM Results")
+        print("Simple MMM Results")
         print(f"  Adstock decay: {self.params['decay']:.3f}")
         print(f"  Hill alpha:    {self.params['alpha']:.2f}")
         print(f"  R-squared:     {self.params['r2']:.3f}")
         print(f"  Baseline:      {self.params['coef'][0]:.0f}")
-        print(f"  Channel ROIs:")
+        print("  Channel ROIs:")
         for ch in channels:
             print(f"    {ch:<12} ROI={rois[ch]:.2f}x  contrib={self.contributions.get(ch,0):.0f}")
     
@@ -108,7 +106,8 @@ class SimpleMMM:
         ax.set_xlabel('Revenue Contribution')
         ax.set_title('MMM - Channel Contribution')
         plt.tight_layout()
-        if save_path: plt.savefig(save_path, dpi=150)
+        if save_path:
+            plt.savefig(save_path, dpi=150)
 
 # ============================================================
 if __name__ == "__main__":
